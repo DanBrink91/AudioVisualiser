@@ -1,5 +1,5 @@
 <head>
-    <script src="jDataView.js"></script>
+    <script src="jdataview.js"></script>
     <style>
         body {
             background-repeat: no-repeat;
@@ -77,7 +77,7 @@
             var reader = new FileReader();
             reader.onload = function(fileEvent) {
                 // try to read song info
-                var dv = new DataView(this.result);
+                var dv = new jDataView(fileEvent.target.result);
                 if (dv.getString(3, dv.byteLength - 128) == 'TAG') {
                     songInfo = {
                         'title': dv.getString(30, dv.tell()),
