@@ -1,0 +1,185 @@
+<head>
+    <script src="jDataView.js"></script>
+    <style>
+        body {
+            background-repeat: no-repeat;
+            background-size:  100% 100%;
+            background-color: black;
+        }
+        #info {
+            background-color: white;
+            display: inline-block;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Drag a MP3 on to start!</div>
+    <script>
+        var container = document.getElementById("info");
+        var imgs = ["88.png", "89.png", "93.png", "97.png", "98.png", "99.png", "101.png", "102.png", "103.png", "105.png",
+         "108.png", "109.png", "113.png", "114.png", "115.png", "116.png", "117.png", "118.png", "119.png", "124.png", "125.png",
+         "126.png", "127.png", "128.png"];
+
+        var colors = ["Red", "Pink", "Cyan", "Plum", "Ocean", "Aqua", "coral", "chartreuse", "lavender", "magenta", "maroon", "olive", "orchid"];
+        var cur_color = Math.floor(colors.length * Math.random());
+        var cur_image = Math.floor(imgs.length * Math.random());
+        var songInfo = null;
+        var songIsPlaying = false;
+        var songBuffer = null;
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        var context = new AudioContext();
+        var source = null;
+        var analyser = context.createAnalyser();
+        analyser.smoothingTimeConstant = 0.8;
+        analyser.fftSize = 1024;
+        analyser.connect(context.destination);
+
+        var binCount = analyser.frequencyBinCount;
+        var freqByteData = new Uint8Array(binCount); // bars - bar data is from  0 - 256 in 512 bins. no sound is 0.
+        var timeByteData = new Uint8Array(binCount); // waveform - waveform data is from 0-256 for 512 bins. no sound is 128.
+        var levelsCount = 16; // factor of 512
+        var levelsData = new Array(levelsCount);
+        var levelBins = Math.floor(binCount/levelsCount);
+
+        // try to find the BEATs
+        var gotBeat = false;
+        var beatCutOff = 0;
+        var beatTime = 0;
+        var BEAT_HOLD_TIME = 50;
+        var BEAT_DECAY_RATE = 0.98;
+        var BEAT_MIN = 0.25;
+
+        // function loadSong(url) {
+        //     var request = new XMLHttpRequest();
+        //     request.open('GET', url, true);
+        //     request.responseType = 'arraybuffer';
+
+        //     request.onload = function() {
+        //         context.decodeAudioData(request.response, function(buffer) {
+        //             songBuffer = buffer;
+                    
+        //             playSong(songBuffer);
+        //         });
+        //     }
+
+        //     request.send();
+        // }
+        // dropping a mp3 on the body
+        function onMP3Drop(evt) {
+            evt.stopPropagation();
+            evt.preventDefault();
+            if(source)
+                source.stop();
+            songIsPlaying = false;
+            var droppedFiles = evt.dataTransfer.files;
+            var reader = new FileReader();
+            reader.onload = function(fileEvent) {
+                // try to read song info
+                var dv = new DataView(this.result);
+                if (dv.getString(3, dv.byteLength - 128) == 'TAG') {
+                    songInfo = {
+                        'title': dv.getString(30, dv.tell()),
+                        'artist': dv.getString(30, dv.tell()),
+                        'album': dv.getString(30, dv.tell()),
+                        'year': dv.getString(4, dv.tell())
+                    };
+
+                }
+                // no data found
+                else {
+                    songInfo = null;
+                }
+                info.innerHTML = "Decoding Song...";
+                var data = fileEvent.target.result;
+                context.decodeAudioData(data, function(buffer){
+                    if(songInfo){
+                        info.innerHTML = "Playing " + songInfo['title'] + " - " + songInfo['artist'] + " ! Drag a different song file to play it instead."
+                    }
+                    else {
+                        info.innerHTML = "Playing Song! Drag a different song on to play it.";    
+                    }
+                    
+                    songBuffer = buffer;
+                    playSong(songBuffer);
+                });
+            };
+            reader.readAsArrayBuffer(droppedFiles[0]);
+            info.innerHTML = "Loading Song...";
+        }
+        function onDragover(evt){
+            evt.stopPropagation();
+            evt.preventDefault();
+            return false;
+        }
+        document.addEventListener('drop', onMP3Drop, false);
+        document.addEventListener('dragover', onDragover, false);
+        
+        function playSong(buffer) {
+            source = context.createBufferSource();
+            source.buffer = buffer;
+            source.loop = true;
+            source.connect(analyser);
+            source.start(0); // may have to use noteOn(time) on older systems
+            songIsPlaying = true;
+        }
+        
+        function update() {
+            requestAnimationFrame(update);
+            if(!songIsPlaying)
+                return;
+
+            analyser.getByteTimeDomainData(timeByteData);
+            analyser.getByteFrequencyData(freqByteData);
+
+            for(var i = 0; i < levelsCount; i++) {
+                var sum = 0;
+                for(var j = 0; j < levelBins; j++) {
+                    sum += freqByteData[(i * levelBins) + j];
+                }
+                levelsData[i] = sum / levelBins;
+            }
+
+            // find avg level
+            var sum = 0;
+            for(var j = 0; j < levelsCount; j++)
+            {
+                sum += levelsData[j];
+            }
+            var level = sum / levelsCount;
+
+            if(level > beatCutOff && level > BEAT_MIN) {
+                // do it
+                beat();
+                beatCutOff = level * 1.1;
+                beatTime = 0;
+            }
+            else {
+                    if(beatTime <= BEAT_HOLD_TIME) {
+                        beatTime++;
+                    }
+                    else {
+                        beatCutOff *= BEAT_DECAY_RATE;
+                        beatCutOff = Math.max(beatCutOff, BEAT_MIN);
+                    }
+            }
+        }
+        function beat() {
+            var img = cur_image++ % imgs.length;
+            var color = cur_color++ % colors.length;
+            document.body.style.backgroundImage = " url('img/" + imgs[img] +" ')";
+            document.body.style.backgroundColor = colors[color];
+
+        }
+        function preloadImages() {
+            var tempImgs = new Array(imgs.length);
+            for(var i = 0; i < imgs.length; i++) {
+                tempImgs[i] = new Image();
+                tempImgs[i].src = "img/" + imgs[i];
+            }
+        }
+        requestAnimationFrame(update);
+        preloadImages();
+    </script>
+</body>
